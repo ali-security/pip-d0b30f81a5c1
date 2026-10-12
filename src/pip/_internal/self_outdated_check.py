@@ -1,5 +1,4 @@
 import datetime
-import functools
 import hashlib
 import json
 import logging
@@ -187,21 +186,9 @@ def _get_current_remote_pip_version(
     return str(best_candidate.version)
 
 
-def _self_version_check_logic(
-    *,
-    state: SelfCheckState,
-    current_time: datetime.datetime,
-    local_version: DistributionVersion,
-    get_remote_version: Callable[[], Optional[str]],
+def _compute_upgrade_prompt(
+    local_version: DistributionVersion, remote_version_str: str
 ) -> Optional[UpgradePrompt]:
-    remote_version_str = state.get(current_time)
-    if remote_version_str is None:
-        remote_version_str = get_remote_version()
-        if remote_version_str is None:
-            logger.debug("No remote pip version found")
-            return None
-        state.set(remote_version_str, current_time)
-
     remote_version = parse_version(remote_version_str)
     logger.debug("Remote version of pip: %s", remote_version)
     logger.debug("Local version of pip:  %s", local_version)
@@ -221,28 +208,63 @@ def _self_version_check_logic(
     return None
 
 
-def pip_self_version_check(session: PipSession, options: optparse.Values) -> None:
-    """Check for an update for pip.
+def _self_version_check_logic(
+    *,
+    state: SelfCheckState,
+    current_time: datetime.datetime,
+    local_version: DistributionVersion,
+    get_remote_version: Callable[[], Optional[str]],
+) -> Optional[UpgradePrompt]:
+    remote_version_str = state.get(current_time)
+    if remote_version_str is None:
+        remote_version_str = get_remote_version()
+        if remote_version_str is None:
+            logger.debug("No remote pip version found")
+            return None
+        state.set(remote_version_str, current_time)
+    return _compute_upgrade_prompt(local_version, remote_version_str)
+
+
+def pip_self_version_check_fetch(
+    session: PipSession, options: optparse.Values
+) -> Optional[str]:
+    """Return the latest pip version from the index, or None.
 
     Limit the frequency of checks to once per week. State is stored either in
     the active virtualenv or in the user's USER_CACHE_DIR keyed off the prefix
     of the pip script path.
+
+    This does all of the work that needs the network (and the modules it
+    imports), so it must run *before* the command body. Pair with
+    :func:`pip_self_version_check_emit`.
     """
+    installed_dist = get_default_environment().get_distribution("pip")
+    if not installed_dist:
+        return None
+
+    state = SelfCheckState(cache_dir=options.cache_dir)
+    current_time = datetime.datetime.now(datetime.timezone.utc)
+    remote_version_str = state.get(current_time)
+    if remote_version_str is not None:
+        return remote_version_str
+
+    remote_version_str = _get_current_remote_pip_version(session, options)
+    if remote_version_str is None:
+        logger.debug("No remote pip version found")
+        return None
+    state.set(remote_version_str, current_time)
+    return remote_version_str
+
+
+def pip_self_version_check_emit(remote_version_str: Optional[str]) -> None:
+    """Emit the upgrade prompt if the installed pip is older than the remote."""
+    if remote_version_str is None:
+        return
+
     installed_dist = get_default_environment().get_distribution("pip")
     if not installed_dist:
         return
 
-    try:
-        upgrade_prompt = _self_version_check_logic(
-            state=SelfCheckState(cache_dir=options.cache_dir),
-            current_time=datetime.datetime.now(datetime.timezone.utc),
-            local_version=installed_dist.version,
-            get_remote_version=functools.partial(
-                _get_current_remote_pip_version, session, options
-            ),
-        )
-        if upgrade_prompt is not None:
-            logger.warning("%s", upgrade_prompt, extra={"rich": True})
-    except Exception:
-        logger.warning("There was an error checking the latest version of pip.")
-        logger.debug("See below for error", exc_info=True)
+    upgrade_prompt = _compute_upgrade_prompt(installed_dist.version, remote_version_str)
+    if upgrade_prompt is not None:
+        logger.warning("%s", upgrade_prompt, extra={"rich": True})

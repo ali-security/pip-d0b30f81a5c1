@@ -6,13 +6,18 @@ import sys
 from optparse import Values
 from pathlib import Path
 from typing import Optional
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 from freezegun import freeze_time
 from pip._vendor.packaging.version import Version
 
 from pip._internal import self_outdated_check
+from pip._internal.self_outdated_check import (
+    UpgradePrompt,
+    pip_self_version_check_emit,
+    pip_self_version_check_fetch,
+)
 
 
 @pytest.mark.parametrize(
@@ -33,28 +38,79 @@ def test_get_statefile_name_known_values(key: str, expected: str) -> None:
 
 
 @freeze_time("1970-01-02T11:00:00Z")
-@patch("pip._internal.self_outdated_check._self_version_check_logic")
+@patch("pip._internal.self_outdated_check._get_current_remote_pip_version")
 @patch("pip._internal.self_outdated_check.SelfCheckState")
-def test_pip_self_version_check_calls_underlying_implementation(
-    mocked_state: Mock, mocked_function: Mock, tmpdir: Path
+def test_pip_self_version_check_fetch_calls_underlying_implementation(
+    mocked_state: Mock, mocked_get_remote: Mock, tmpdir: Path
 ) -> None:
     # GIVEN
     mock_session = Mock()
     fake_options = Values({"cache_dir": str(tmpdir)})
+    mocked_state.return_value.get.return_value = None
+    mocked_get_remote.return_value = "5.0"
 
     # WHEN
-    self_outdated_check.pip_self_version_check(mock_session, fake_options)
+    result = pip_self_version_check_fetch(mock_session, fake_options)
 
     # THEN
+    assert result == "5.0"
     mocked_state.assert_called_once_with(cache_dir=str(tmpdir))
-    mocked_function.assert_called_once_with(
-        state=mocked_state(cache_dir=str(tmpdir)),
-        current_time=datetime.datetime(
-            1970, 1, 2, 11, 0, 0, tzinfo=datetime.timezone.utc
-        ),
-        local_version=ANY,
-        get_remote_version=ANY,
+    mocked_get_remote.assert_called_once_with(mock_session, fake_options)
+    mocked_state.return_value.set.assert_called_once_with(
+        "5.0",
+        datetime.datetime(1970, 1, 2, 11, 0, 0, tzinfo=datetime.timezone.utc),
     )
+
+
+@patch("pip._internal.self_outdated_check._get_current_remote_pip_version")
+@patch("pip._internal.self_outdated_check.SelfCheckState")
+def test_pip_self_version_check_fetch_uses_cached_version(
+    mocked_state: Mock, mocked_get_remote: Mock, tmpdir: Path
+) -> None:
+    # GIVEN
+    fake_options = Values({"cache_dir": str(tmpdir)})
+    mocked_state.return_value.get.return_value = "5.0"
+
+    # WHEN
+    result = pip_self_version_check_fetch(Mock(), fake_options)
+
+    # THEN
+    assert result == "5.0"
+    mocked_get_remote.assert_not_called()
+    mocked_state.return_value.set.assert_not_called()
+
+
+@patch("pip._internal.self_outdated_check._compute_upgrade_prompt")
+@patch("pip._internal.self_outdated_check.get_default_environment")
+def test_pip_self_version_check_emit_calls_underlying_implementation(
+    mocked_env: Mock, mocked_compute: Mock, caplog: pytest.LogCaptureFixture
+) -> None:
+    # GIVEN
+    mocked_env.return_value.get_distribution.return_value.version = Version("1.0")
+    mocked_compute.return_value = UpgradePrompt(old="1.0", new="2.0")
+
+    # WHEN
+    with caplog.at_level(logging.WARNING):
+        pip_self_version_check_emit("2.0")
+
+    # THEN
+    mocked_compute.assert_called_once_with(Version("1.0"), "2.0")
+    assert [record.args for record in caplog.records] == [
+        (UpgradePrompt(old="1.0", new="2.0"),)
+    ]
+
+
+@patch("pip._internal.self_outdated_check._compute_upgrade_prompt")
+@patch("pip._internal.self_outdated_check.get_default_environment")
+def test_pip_self_version_check_emit_without_remote_version_is_noop(
+    mocked_env: Mock, mocked_compute: Mock
+) -> None:
+    # WHEN
+    pip_self_version_check_emit(None)
+
+    # THEN
+    mocked_env.assert_not_called()
+    mocked_compute.assert_not_called()
 
 
 @pytest.mark.parametrize(
