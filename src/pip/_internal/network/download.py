@@ -11,7 +11,12 @@ from pip._vendor.requests.models import CONTENT_CHUNK_SIZE, Response
 from pip._internal.cli.progress_bars import get_download_progress_renderer
 from pip._internal.exceptions import NetworkConnectionError
 from pip._internal.models.index import PyPI
-from pip._internal.models.link import Link
+from pip._internal.models.link import (
+    Link,
+    PathComponent,
+    as_path_component,
+    join_within_directory,
+)
 from pip._internal.network.cache import is_from_cache
 from pip._internal.network.session import PipSession
 from pip._internal.network.utils import HEADERS, raise_for_status, response_chunks
@@ -91,11 +96,14 @@ def parse_content_disposition(content_disposition: str, default_filename: str) -
     return filename or default_filename
 
 
-def _get_http_response_filename(resp: Response, link: Link) -> str:
+def _get_http_response_filename(resp: Response, link: Link) -> PathComponent:
     """Get an ideal filename from the given HTTP response, falling back to
     the link filename if not provided.
+
+    The result is validated as a single path component, so it can be joined onto
+    a download directory without escaping it.
     """
-    filename = link.filename  # fallback
+    filename: str = link.filename  # fallback
     # Have a look at the Content-Disposition header for a better guess
     content_disposition = resp.headers.get("content-disposition")
     if content_disposition:
@@ -109,7 +117,7 @@ def _get_http_response_filename(resp: Response, link: Link) -> str:
         ext = os.path.splitext(resp.url)[1]
         if ext:
             filename += ext
-    return filename
+    return as_path_component(filename)
 
 
 def _http_get_download(session: PipSession, link: Link) -> Response:
@@ -140,7 +148,7 @@ class Downloader:
             raise
 
         filename = _get_http_response_filename(resp, link)
-        filepath = os.path.join(location, filename)
+        filepath = join_within_directory(location, filename)
 
         chunks = _prepare_download(resp, link, self._progress_bar)
         with open(filepath, "wb") as content_file:
@@ -176,7 +184,7 @@ class BatchDownloader:
                 raise
 
             filename = _get_http_response_filename(resp, link)
-            filepath = os.path.join(location, filename)
+            filepath = join_within_directory(location, filename)
 
             chunks = _prepare_download(resp, link, self._progress_bar)
             with open(filepath, "wb") as content_file:
