@@ -146,6 +146,20 @@ def unzip_file(filename: str, location: str, flatten: bool = True) -> None:
         zipfp.close()
 
 
+def is_symlink_target_in_tar(tar: tarfile.TarFile, tarinfo: tarfile.TarInfo) -> bool:
+    """Check if the file pointed to by the symbolic link is in the tar archive"""
+    linkname = os.path.join(os.path.dirname(tarinfo.name), tarinfo.linkname)
+
+    linkname = os.path.normpath(linkname)
+    linkname = linkname.replace("\\", "/")
+
+    try:
+        tar.getmember(linkname)
+        return True
+    except KeyError:
+        return False
+
+
 def untar_file(filename: str, location: str) -> None:
     """
     Untar the file (with path `filename`) to the destination `location`.
@@ -187,6 +201,14 @@ def untar_file(filename: str, location: str) -> None:
             if member.isdir():
                 ensure_dir(path)
             elif member.issym():
+                if not is_symlink_target_in_tar(tar, member):
+                    message = (
+                        "The tar file ({}) has a file ({}) trying to install "
+                        "outside target directory ({})"
+                    )
+                    raise InstallationError(
+                        message.format(filename, member.name, member.linkname)
+                    )
                 try:
                     tar._extract_member(member, path)
                 except Exception as exc:
