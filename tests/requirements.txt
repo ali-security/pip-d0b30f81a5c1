@@ -5,7 +5,10 @@ pytest
 pytest-cov
 pytest-rerunfailures
 pytest-xdist
-scripttest
+# scripttest >= 2.0 (2025) asserts the *whole* temp dir is empty after every
+# run instead of only checking files created by that run, which breaks tests
+# that stage projects under script.temp_path ("Temporary files left over").
+scripttest < 2
 setuptools
 virtualenv < 20.0 ; python_version < '3.10'
 virtualenv >= 20.0 ; python_version >= '3.10'

@@ -313,8 +313,9 @@ def test_git_install_then_install_ref(script: PipTestEnvironment) -> None:
 @pytest.mark.parametrize(
     "rev, expected_sha",
     [
-        # Clone the default branch
-        ("", "5547fa909e83df8bd743d3978d6667497983a4b7"),
+        # Clone the default branch. pypa/pip-test-package's master moved from
+        # 5547fa909e83df8bd743d3978d6667497983a4b7 to this commit in 2025-07.
+        ("", "96d6d72ac54132aecbdd5adac88bc8d1f8fb986b"),
         # Clone a specific tag
         ("@0.1.1", "7d654e66c8fa7149c165ddeffa5b56bc06619458"),
         # Clone a specific commit

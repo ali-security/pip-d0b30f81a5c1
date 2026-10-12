@@ -5,7 +5,10 @@
 # 4. Replacing the `setuptools` entry below with a `file:///...` URL
 # (Adjust artifact directory used based on preference and operating system)
 
-setuptools >= 40.8.0, != 60.6.0
-wheel
+# Capped to the release-era line: setuptools >= 80 turns `setup.py develop`
+# (used by the pip_editable fixture) into a `pip install -e` call that fails in
+# the pip-less fixture venv, and wheel >= 0.46 needs setuptools >= 70.1.
+setuptools >= 40.8.0, != 60.6.0, < 70
+wheel < 0.46
 # As required by pytest-cov.
 coverage >= 4.4

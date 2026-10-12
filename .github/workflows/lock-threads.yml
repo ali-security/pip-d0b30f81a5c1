@@ -1,8 +1,6 @@
 name: 'Lock Closed Threads'
 
 on:
-  schedule:
-    - cron: '0 7 * * *'  # 7am UTC, daily
   workflow_dispatch:
 
 permissions:
@@ -16,6 +14,7 @@ jobs:
   action:
     if: github.repository_owner == 'pypa'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: dessant/lock-threads@v4
         with:

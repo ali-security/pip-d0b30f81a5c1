@@ -51,6 +51,14 @@ def local_checkout(
         assert repository_name == "INITools"
         _create_svn_initools_repo(repo_url_path)
         repo_url_path = os.path.join(repo_url_path, "trunk")
+    elif vcs_name == "git":
+        # vcs_backend.obtain() makes a `--filter=blob:none` partial clone.
+        # Tests then clone *from* this local cache, and git >= 2.45's
+        # upload-pack refuses to lazily fetch missing blobs from the promisor
+        # remote ("lazy fetching disabled"), so make a full clone instead.
+        subprocess.check_call(
+            ["git", "clone", "-q", remote_repo.split("+", 1)[1], repo_url_path]
+        )
     else:
         vcs_backend = vcs.get_backend(vcs_name)
         assert vcs_backend is not None
